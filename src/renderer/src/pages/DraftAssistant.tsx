@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../../shared/ipc-channels'
 import type {
   ChampionDataResponse,
   ChampSelectState,
+  ItemBuildInfo,
   Lane,
   MatchupInfo,
   RankBracket
@@ -10,7 +11,7 @@ import type {
 import { RANK_BRACKET_OPTIONS } from '../../../shared/types'
 import { BuildRecommend } from '@/components/BuildRecommend'
 import { StatusBar } from '@/components/StatusBar'
-import { championIconUrl } from '@/lib/ddragon'
+import { championIconUrl, lolalyticsItemIconUrl, runeIconUrl, statModIconUrl } from '@/lib/ddragon'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
 
@@ -309,6 +310,11 @@ function QuickLookupPanel({ onLookup }: { onLookup: (id: number) => void }): Rea
 }
 
 function ChampionDataPanel({ data }: { data: ChampionDataResponse }): React.JSX.Element {
+  const startingBuilds = data.builds.filter((build) => build.label.includes('出门'))
+  const coreBuilds = data.builds.filter((build) => !build.position && !build.label.includes('出门'))
+  const situationalBuilds = data.builds.filter((build) => build.position)
+  const baseBuilds = [...startingBuilds, ...coreBuilds]
+
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3">
@@ -363,25 +369,40 @@ function ChampionDataPanel({ data }: { data: ChampionDataResponse }): React.JSX.
       {data.builds.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-4">
           <h4 className="mb-3 text-sm font-medium">推荐出装</h4>
-          <div className="space-y-3">
-            {data.builds.map((build, i) => (
-              <div key={i}>
-                <div className="mb-1 flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">{build.label}</span>
-                  <span>
-                    <span className={build.winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}>
-                      {build.winRate.toFixed(1)}%
-                    </span>
-                    <span className="ml-1 text-muted-foreground">({build.games} 场)</span>
-                  </span>
-                </div>
-                <div className="flex gap-1">
-                  {build.items.map((itemId, j) => (
-                    <ItemIcon key={j} itemId={itemId} />
-                  ))}
-                </div>
+          <div className="space-y-4">
+            {baseBuilds.length > 0 && (
+              <div className="space-y-3">
+                <div className="text-xs text-muted-foreground">基础路线</div>
+                {baseBuilds.map((build, i) => (
+                  <BuildLine key={i} build={build} />
+                ))}
               </div>
-            ))}
+            )}
+
+            {situationalBuilds.length > 0 && (
+              <div className="space-y-3 border-t border-border pt-3">
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">局势装备选择</div>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    核心装之后按对手回血、暴击、AP 爆发、控制和自身经济选择。
+                  </p>
+                </div>
+                {[4, 5, 6].map((position) => {
+                  const choices = situationalBuilds.filter((build) => build.position === position)
+                  if (choices.length === 0) return null
+                  return (
+                    <div key={position}>
+                      <div className="mb-2 text-xs font-medium">第 {position} 件候选</div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        {choices.map((build, i) => (
+                          <BuildLine key={`${position}-${i}`} build={build} compact />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -401,11 +422,30 @@ function ChampionDataPanel({ data }: { data: ChampionDataResponse }): React.JSX.
                     <span className="ml-1 text-muted-foreground">({rune.games} 场)</span>
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2 text-[10px] text-muted-foreground">
-                  <span>主系: {rune.primaryTree}</span>
-                  <span>副系: {rune.secondaryTree}</span>
-                  <span>基石: {rune.primaryPerks.join(', ')}</span>
-                  {rune.statShards.length > 0 && <span>属性: {rune.statShards.join(', ')}</span>}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1">
+                    <span className="mr-1 text-[10px] text-muted-foreground">主系</span>
+                    {rune.primaryPerks.map((id) => (
+                      <img key={id} src={runeIconUrl(id)} alt={String(id)} className="h-7 w-7 rounded-full bg-muted/40"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span className="mr-1 text-[10px] text-muted-foreground">副系</span>
+                    {rune.secondaryPerks.map((id) => (
+                      <img key={id} src={runeIconUrl(id)} alt={String(id)} className="h-7 w-7 rounded-full bg-muted/40"
+                        onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    ))}
+                  </div>
+                  {rune.statShards.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <span className="mr-1 text-[10px] text-muted-foreground">属性</span>
+                      {rune.statShards.map((id) => (
+                        <img key={id} src={statModIconUrl(id)} alt={String(id)} className="h-7 w-7 rounded-full bg-muted/40"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ))}
@@ -416,11 +456,46 @@ function ChampionDataPanel({ data }: { data: ChampionDataResponse }): React.JSX.
   )
 }
 
+function BuildLine({
+  build,
+  compact = false
+}: {
+  build: ItemBuildInfo
+  compact?: boolean
+}): React.JSX.Element {
+  return (
+    <div className={cn('rounded-md bg-muted/15', compact ? 'p-2' : 'p-0')}>
+      <div className="mb-1 flex items-start justify-between gap-3 text-xs">
+        <div>
+          <span className="text-muted-foreground">{build.label}</span>
+          {build.itemNames && build.itemNames.length > 0 && build.itemNames.join(' / ') !== build.label && (
+            <div className="mt-0.5 text-[10px] text-muted-foreground">{build.itemNames.join(' / ')}</div>
+          )}
+        </div>
+        <span className="shrink-0">
+          <span className={build.winRate >= 50 ? 'text-emerald-400' : 'text-red-400'}>
+            {build.winRate.toFixed(1)}%
+          </span>
+          <span className="ml-1 text-muted-foreground">({build.games} 场)</span>
+        </span>
+      </div>
+      <div className="flex gap-1">
+        {build.items.map((itemId, j) => (
+          <ItemIcon key={j} itemId={itemId} />
+        ))}
+      </div>
+      {build.reason && (
+        <p className="mt-2 text-[10px] leading-4 text-muted-foreground">{build.reason}</p>
+      )}
+    </div>
+  )
+}
+
 function ItemIcon({ itemId }: { itemId: number }): React.JSX.Element {
   if (itemId <= 0) return <div className="h-8 w-8 rounded bg-muted/30" />
   return (
     <img
-      src={`https://ddragon.leagueoflegends.com/cdn/14.24.1/img/item/${itemId}.png`}
+      src={lolalyticsItemIconUrl(itemId)}
       alt={String(itemId)}
       className="h-8 w-8 rounded"
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}

@@ -251,9 +251,12 @@ export interface MatchupInfo {
 
 export interface ItemBuildInfo {
   items: number[]
+  itemNames?: string[]
   winRate: number
   games: number
   label: string
+  position?: number
+  reason?: string
 }
 
 export interface RunePageInfo {

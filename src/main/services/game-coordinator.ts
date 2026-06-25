@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import type { ChampSelectState, GamePhase, LcuStatus, PlayerWithHistory, TeamData } from '../../shared/types'
+import type { ChampSelectState, GamePhase, LcuStatus, LivePlayer, PlayerWithHistory, TeamData } from '../../shared/types'
 import { IPC_CHANNELS } from '../../shared/ipc-channels'
 import { lcuService } from './lcu'
 import { liveClientService } from './live-client'
@@ -14,6 +14,7 @@ let currentTeamData: TeamData = {
   phase: 'None',
   updatedAt: Date.now()
 }
+let liveRetryTimer: NodeJS.Timeout | null = null
 
 export function setMainWindow(win: BrowserWindow): void {
   mainWindow = win
@@ -42,10 +43,21 @@ function broadcastTeamData(): void {
 async function fetchPlayerHistory(
   gameName: string,
   tagLine: string,
-  options?: { championId?: number; championName?: string; team?: 'ally' | 'enemy' }
+  options?: { championId?: number; championName?: string; team?: 'ally' | 'enemy'; quiet?: boolean }
 ): Promise<PlayerWithHistory> {
   await riotApi.ensureChampionData()
   const riotId = `${gameName}#${tagLine}`
+  const pending = (): PlayerWithHistory => ({
+    puuid: '',
+    gameName,
+    tagLine,
+    riotId,
+    championId: options?.championId,
+    championName: options?.championName,
+    team: options?.team,
+    matches: [],
+    loading: true
+  })
 
   // 先尝试 LCU 本地接口
   if (lcuService.isConnected()) {
@@ -69,8 +81,11 @@ async function fetchPlayerHistory(
       }
     } catch (error) {
       console.warn('[Coordinator] LCU match history failed, trying Riot API', error)
+      if (options?.quiet) return pending()
     }
   }
+
+  if (options?.quiet) return pending()
 
   // 降级到 Riot 外部 API（仅外服有效）
   if (riotApi.isConfigured()) {
@@ -117,14 +132,16 @@ async function fetchHistories(
     championId?: number
     championName?: string
     team?: 'ally' | 'enemy'
-  }>
+  }>,
+  quiet = false
 ): Promise<PlayerWithHistory[]> {
   return Promise.all(
     players.map((p) =>
       fetchPlayerHistory(p.gameName, p.tagLine, {
         championId: p.championId,
         championName: p.championName,
-        team: p.team
+        team: p.team,
+        quiet
       })
     )
   )
@@ -136,6 +153,50 @@ function parseRiotId(riotId: string): { gameName: string; tagLine: string } {
   return {
     gameName: riotId.slice(0, hashIndex),
     tagLine: riotId.slice(hashIndex + 1)
+  }
+}
+
+function mapLivePlayers(players: LivePlayer[], isAlly: boolean) {
+  return players
+    .filter((p) => p.isAlly === isAlly)
+    .map((p) => ({
+      gameName: p.riotIdGameName,
+      tagLine: p.riotIdTagLine,
+      championName: p.championName,
+      team: isAlly ? 'ally' as const : 'enemy' as const
+    }))
+}
+
+function scheduleLiveRetry(players: LivePlayer[], attempt: number): void {
+  if (liveRetryTimer) clearTimeout(liveRetryTimer)
+  if (attempt >= 8) return
+
+  liveRetryTimer = setTimeout(() => {
+    void refreshLiveTeamData(players, attempt + 1)
+  }, 2500)
+}
+
+async function refreshLiveTeamData(players: LivePlayer[], attempt = 0): Promise<void> {
+  const allyPlayers = mapLivePlayers(players, true)
+  const enemyPlayers = mapLivePlayers(players, false)
+
+  const [allies, enemies] = await Promise.all([
+    fetchHistories(allyPlayers, true),
+    fetchHistories(enemyPlayers, true)
+  ])
+
+  currentTeamData = {
+    allies,
+    enemies,
+    phase: 'InProgress',
+    updatedAt: Date.now()
+  }
+  broadcast(IPC_CHANNELS.GAME_LIVE_PLAYERS, players)
+  broadcastToOverlay(IPC_CHANNELS.GAME_LIVE_PLAYERS, players)
+  broadcastTeamData()
+
+  if ([...allies, ...enemies].some((p) => p.loading)) {
+    scheduleLiveRetry(players, attempt)
   }
 }
 
@@ -191,40 +252,8 @@ export function startGameCoordinator(): void {
   })
 
   liveClientService.onPlayersUpdate((players) => {
-    void (async () => {
-      const allyPlayers = players
-        .filter((p) => p.isAlly)
-        .map((p) => ({
-          gameName: p.riotIdGameName,
-          tagLine: p.riotIdTagLine,
-          championName: p.championName,
-          team: 'ally' as const
-        }))
-
-      const enemyPlayers = players
-        .filter((p) => !p.isAlly)
-        .map((p) => ({
-          gameName: p.riotIdGameName,
-          tagLine: p.riotIdTagLine,
-          championName: p.championName,
-          team: 'enemy' as const
-        }))
-
-      const [allies, enemies] = await Promise.all([
-        fetchHistories(allyPlayers),
-        fetchHistories(enemyPlayers)
-      ])
-
-      currentTeamData = {
-        allies,
-        enemies,
-        phase: 'InProgress',
-        updatedAt: Date.now()
-      }
-      broadcast(IPC_CHANNELS.GAME_LIVE_PLAYERS, players)
-      broadcastToOverlay(IPC_CHANNELS.GAME_LIVE_PLAYERS, players)
-      broadcastTeamData()
-    })()
+    if (liveRetryTimer) clearTimeout(liveRetryTimer)
+    void refreshLiveTeamData(players)
   })
 
   lcuService.start()
@@ -232,6 +261,8 @@ export function startGameCoordinator(): void {
 }
 
 export function stopGameCoordinator(): void {
+  if (liveRetryTimer) clearTimeout(liveRetryTimer)
+  liveRetryTimer = null
   lcuService.stop()
   liveClientService.stop()
 }

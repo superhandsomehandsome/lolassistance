@@ -17,6 +17,7 @@ function createOverlay(): BrowserWindow {
     y: 20,
     transparent: true,
     frame: false,
+    show: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: false,
@@ -53,10 +54,11 @@ function createOverlay(): BrowserWindow {
 
 export function showOverlay(): void {
   if (overlayWindow && !overlayWindow.isDestroyed()) {
-    overlayWindow.show()
+    overlayWindow.showInactive()
     return
   }
   overlayWindow = createOverlay()
+  overlayWindow.showInactive()
 }
 
 export function hideOverlay(): void {
@@ -116,9 +118,8 @@ export function registerOverlayToggleHotkey(): void {
 }
 
 export function handlePhaseForOverlay(phase: GamePhase): void {
-  if (phase === 'GameStart' || phase === 'InProgress') {
-    showOverlay()
-  } else if (phase === 'EndOfGame' || phase === 'None') {
+  // 避免进入游戏时自动弹出/抢占体验；需要时由用户按 F7 手动显示。
+  if (phase === 'EndOfGame' || phase === 'None') {
     hideOverlay()
   }
 }

@@ -8,6 +8,18 @@ export function itemIconUrl(itemId: number, version = DDRAGON_VERSION): string {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${itemId}.png`
 }
 
+export function lolalyticsItemIconUrl(itemId: number): string {
+  return `https://cdn5.lolalytics.com/item64/${itemId}.webp`
+}
+
+export function runeIconUrl(runeId: number): string {
+  return `https://cdn5.lolalytics.com/rune68/${runeId}.webp`
+}
+
+export function statModIconUrl(statModId: number): string {
+  return `https://cdn5.lolalytics.com/statmod32/${statModId}.webp`
+}
+
 export function spellIconUrl(spellImageId: string, version = DDRAGON_VERSION): string {
   return `https://ddragon.leagueoflegends.com/cdn/${version}/img/spell/${spellImageId}.png`
 }
