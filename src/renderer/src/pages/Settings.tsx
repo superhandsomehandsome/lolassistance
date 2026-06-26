@@ -6,11 +6,10 @@ import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
 
-type ClientStatus = 'chat' | 'dnd' | 'away' | 'invisible'
+type ClientStatus = 'chat' | 'away' | 'invisible'
 
 const STATUS_OPTIONS: Array<{ id: ClientStatus; label: string; color: string }> = [
   { id: 'chat', label: '在线', color: 'bg-emerald-500' },
-  { id: 'dnd', label: '忙碌', color: 'bg-red-500' },
   { id: 'away', label: '离开', color: 'bg-amber-500' },
   { id: 'invisible', label: '隐身', color: 'bg-gray-500' }
 ]

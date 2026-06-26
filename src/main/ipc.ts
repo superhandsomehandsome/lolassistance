@@ -78,7 +78,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(
     IPC_CHANNELS.CLIENT_STATUS_SET,
-    async (_e, status: 'chat' | 'dnd' | 'away' | 'invisible', message: string) => {
+    async (_e, status: 'chat' | 'away' | 'invisible', message: string) => {
       await lcuService.setOnlineStatus(status, message)
       return lcuService.getOnlineStatus()
     }
