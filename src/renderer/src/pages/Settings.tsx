@@ -6,6 +6,15 @@ import { Input } from '@/components/ui/input'
 import { useAppStore } from '@/stores/app-store'
 import { cn } from '@/lib/utils'
 
+type ClientStatus = 'chat' | 'dnd' | 'away' | 'invisible'
+
+const STATUS_OPTIONS: Array<{ id: ClientStatus; label: string; color: string }> = [
+  { id: 'chat', label: '在线', color: 'bg-emerald-500' },
+  { id: 'dnd', label: '忙碌', color: 'bg-red-500' },
+  { id: 'away', label: '离开', color: 'bg-amber-500' },
+  { id: 'invisible', label: '隐身', color: 'bg-gray-500' }
+]
+
 interface SettingsData {
   lolInstallPath?: string
   riotApiConfigured: boolean
@@ -50,6 +59,13 @@ export function Settings(): React.JSX.Element {
   const [currentHotkey, setCurrentHotkey] = useState('F6')
   const [listening, setListening] = useState(false)
   const [hotkeyError, setHotkeyError] = useState<string | null>(null)
+
+  // 客户端在线状态
+  const [clientStatus, setClientStatus] = useState<ClientStatus>('chat')
+  const [statusMessage, setStatusMessage] = useState('')
+  const [statusSaving, setStatusSaving] = useState(false)
+  const [statusSaved, setStatusSaved] = useState(false)
+  const [statusError, setStatusError] = useState<string | null>(null)
 
   const handlePing = async (): Promise<void> => {
     setLoading(true)
@@ -121,9 +137,39 @@ export function Settings(): React.JSX.Element {
     return undefined
   }, [listening, handleKeyDown])
 
+  const loadClientStatus = async (): Promise<void> => {
+    try {
+      const result = (await window.api.invoke(IPC_CHANNELS.CLIENT_STATUS_GET)) as {
+        status: string
+        message: string
+      } | null
+      if (result) {
+        setClientStatus(result.status as ClientStatus)
+        setStatusMessage(result.message)
+      }
+    } catch {
+      // LCU 未连接，忽略
+    }
+  }
+
+  const saveClientStatus = async (): Promise<void> => {
+    setStatusSaving(true)
+    setStatusError(null)
+    try {
+      await window.api.invoke(IPC_CHANNELS.CLIENT_STATUS_SET, clientStatus, statusMessage.trim())
+      setStatusSaved(true)
+      setTimeout(() => setStatusSaved(false), 2000)
+    } catch (error) {
+      setStatusError(error instanceof Error ? error.message : '设置失败，请确认客户端已连接')
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
   useEffect(() => {
     void handlePing()
     void loadSettings()
+    void loadClientStatus()
   }, [])
 
   return (
@@ -171,6 +217,47 @@ export function Settings(): React.JSX.Element {
           <p>连接：{lcuStatus.connected ? '已连接' : '未连接'}</p>
           <p>游戏阶段：{lcuStatus.gamePhase}</p>
           {lcuStatus.lockfilePath && <p className="truncate">Lockfile：{lcuStatus.lockfilePath}</p>}
+        </div>
+      </div>
+
+      <div className="max-w-lg space-y-4 rounded-lg border border-border bg-card p-6">
+        <h2 className="text-sm font-medium">客户端在线状态</h2>
+        <p className="text-sm text-muted-foreground">
+          修改客户端的在线状态和自定义状态文字（好友可见）。需先连接客户端。
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => setClientStatus(opt.id)}
+              className={cn(
+                'flex items-center gap-2 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
+                clientStatus === opt.id
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted'
+              )}
+            >
+              <span className={cn('h-2 w-2 rounded-full', opt.color)} />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <div className="space-y-2">
+          <Input
+            placeholder="自定义状态文字（如：挂机吃饭 / 代练勿扰）"
+            value={statusMessage}
+            onChange={(e) => setStatusMessage(e.target.value)}
+            maxLength={50}
+          />
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={() => void saveClientStatus()} disabled={statusSaving || !lcuStatus.connected}>
+              {statusSaving ? '设置中...' : '应用状态'}
+            </Button>
+            {statusSaved && <span className="text-xs text-emerald-400">已应用，好友可见</span>}
+            {statusError && <span className="text-xs text-red-400">{statusError}</span>}
+            {!lcuStatus.connected && <span className="text-xs text-muted-foreground">请先连接客户端</span>}
+          </div>
         </div>
       </div>
 

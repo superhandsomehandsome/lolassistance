@@ -634,6 +634,30 @@ class LcuService {
   getClient(): AxiosInstance | null {
     return this.client
   }
+
+  /**
+   * 设置客户端在线状态和自定义状态文字（好友可见）。
+   * 国服经实测可用：PUT /lol-chat/v1/me 带完整 body 能写入并广播给好友。
+   * @param status 状态类型：chat(在线) / dnd(忙碌) / away(离开) / invisible(隐身)
+   * @param message 自定义状态文字（好友名字下方显示），空字符串清除
+   */
+  async setOnlineStatus(status: 'chat' | 'dnd' | 'away' | 'invisible', message: string): Promise<void> {
+    if (!this.client) throw new Error('LCU 未连接，请先启动并登录客户端')
+    // 必须先读当前 me，再合并修改后整体 PUT（部分字段 PATCH 在国服被锁，PUT 完整 body 才行）
+    const { data: me } = await this.client.get<Record<string, unknown>>('/lol-chat/v1/me')
+    await this.client.put('/lol-chat/v1/me', { ...me, availability: status, statusMessage: message })
+  }
+
+  /** 读取当前客户端在线状态和自定义文字 */
+  async getOnlineStatus(): Promise<{ status: string; message: string } | null> {
+    if (!this.client) return null
+    try {
+      const { data } = await this.client.get<{ availability?: string; statusMessage?: string }>('/lol-chat/v1/me')
+      return { status: data.availability ?? 'chat', message: data.statusMessage ?? '' }
+    } catch {
+      return null
+    }
+  }
 }
 
 export const lcuService = new LcuService()
