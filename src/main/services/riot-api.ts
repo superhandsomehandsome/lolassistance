@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios'
 import type { MatchSummary, PlayerWithHistory } from '../../shared/types'
+import { getChampionSearchTerms } from '../../shared/champion-aliases'
 import { RateLimiter } from './rate-limiter'
 
 const ACCOUNT_REGION = 'https://asia.api.riotgames.com'
@@ -9,11 +10,13 @@ interface DDragonChampion {
   id: string
   key: string
   name: string
+  title?: string
 }
 
 interface ChampionInfo {
   name: string
   imageId: string
+  title?: string
 }
 
 class RiotApiService {
@@ -60,12 +63,17 @@ class RiotApiService {
       )
       this.ddragonVersion = versionsRes.data[0] ?? this.ddragonVersion
 
+      // championFull.json 包含 title(英雄本名，如"亚索")，而 champion.json 只有 name(称号，如"疾风剑豪")
       const champRes = await axios.get<{ data: Record<string, DDragonChampion> }>(
-        `https://ddragon.leagueoflegends.com/cdn/${this.ddragonVersion}/data/zh_CN/champion.json`
+        `https://ddragon.leagueoflegends.com/cdn/${this.ddragonVersion}/data/zh_CN/championFull.json`
       )
 
       for (const champ of Object.values(champRes.data.data)) {
-        this.championMap.set(Number(champ.key), { name: champ.name, imageId: champ.id })
+        this.championMap.set(Number(champ.key), {
+          name: champ.name,
+          imageId: champ.id,
+          title: champ.title
+        })
       }
     } catch (error) {
       console.error('[RiotAPI] Failed to load champion data', error)
@@ -86,6 +94,36 @@ class RiotApiService {
       if (info.imageId.toLowerCase() === lower) return id
     }
     return 0
+  }
+
+  /**
+   * 返回所有英雄的搜索索引（id、中文名、本名、英文id、别名），
+   * 供前端搜索框按昵称匹配英雄。
+   */
+  getChampionSearchIndex(): Array<{
+    championId: number
+    name: string
+    title: string
+    imageId: string
+    aliases: string[]
+  }> {
+    const result: Array<{
+      championId: number
+      name: string
+      title: string
+      imageId: string
+      aliases: string[]
+    }> = []
+    for (const [id, info] of this.championMap.entries()) {
+      result.push({
+        championId: id,
+        name: info.name,
+        title: info.title ?? '',
+        imageId: info.imageId,
+        aliases: getChampionSearchTerms(info.imageId, info.name, info.title ?? '')
+      })
+    }
+    return result
   }
 
   private ensureClient(): AxiosInstance {

@@ -3,6 +3,7 @@ import { IPC_CHANNELS } from '../../../shared/ipc-channels'
 import type {
   ChampionDataResponse,
   ChampSelectState,
+  ChampSelectPlayer,
   ItemBuildInfo,
   Lane,
   MatchupInfo,
@@ -94,6 +95,7 @@ function ChampSelectPanel({ csState }: { csState: ChampSelectState }): React.JSX
                   <div className="flex h-6 w-6 items-center justify-center rounded-full bg-muted text-[10px]">?</div>
                 )}
                 <span className="text-xs">{p.championName || '未选择'}</span>
+                {p.assignedPosition && <span className="text-[10px] text-muted-foreground">({p.assignedPosition})</span>}
               </div>
             ))}
           </div>
@@ -137,9 +139,30 @@ export function DraftAssistant(): React.JSX.Element {
   useEffect(() => {
     if (!inChampSelect || !champSelectState) return
     const enemies = champSelectState.theirTeam.filter((p) => p.championId > 0)
-    if (enemies.length > 0) {
-      const latestEnemy = enemies[enemies.length - 1]
-      setLookupChampId(latestEnemy.championId)
+    if (enemies.length === 0) return
+
+    // 优先按我方位置匹配敌方同位置英雄（如我方 AD 对敌方 AD），
+    // 而不是简单地取最后选的英雄，否则会显示错误位置的对位数据。
+    const myLane = champSelectState.myLane
+    let matched: ChampSelectPlayer | undefined
+    if (myLane) {
+      // LCU 用 'utility' 表示辅助，映射到 our Lane 'support'
+      const laneToPosition = (lane: Lane): string[] => {
+        if (lane === 'support') return ['utility', 'support']
+        if (lane === 'middle') return ['middle', 'mid']
+        return [lane]
+      }
+      const positions = laneToPosition(myLane)
+      matched = enemies.find((p) => positions.includes(p.assignedPosition?.toLowerCase() ?? ''))
+    }
+
+    // 找不到同位置的（如盲选/位置未分配）才 fallback 到最后选的英雄
+    if (!matched) {
+      matched = enemies[enemies.length - 1]
+    }
+
+    if (matched && matched.championId > 0) {
+      setLookupChampId(matched.championId)
     }
   }, [inChampSelect, champSelectState])
 
@@ -246,45 +269,59 @@ export function DraftAssistant(): React.JSX.Element {
 
 function QuickLookupPanel({ onLookup }: { onLookup: (id: number) => void }): React.JSX.Element {
   const [input, setInput] = useState('')
-  const [suggestions, setSuggestions] = useState<Array<{ id: number; name: string; imageId: string }>>([])
+  const [suggestions, setSuggestions] = useState<
+    Array<{ id: number; name: string; title: string; imageId: string; aliases: string[] }>
+  >([])
 
   useEffect(() => {
     void (async () => {
       try {
-        const data = await window.api.invoke(IPC_CHANNELS.TIER_GET_LIST, 'emerald_plus') as {
-          lanes: Record<string, Array<{ championId: number; name: string; imageId: string }>>
-        }
-        if (data?.lanes) {
-          const seen = new Set<number>()
-          const all: Array<{ id: number; name: string; imageId: string }> = []
-          for (const lane of Object.values(data.lanes)) {
-            for (const champ of lane) {
-              if (!seen.has(champ.championId)) {
-                seen.add(champ.championId)
-                all.push({ id: champ.championId, name: champ.name, imageId: champ.imageId })
-              }
-            }
-          }
-          all.sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+        const data = (await window.api.invoke(IPC_CHANNELS.CHAMPION_SEARCH_INDEX)) as Array<{
+          championId: number
+          name: string
+          title: string
+          imageId: string
+          aliases: string[]
+        }>
+        if (data) {
+          const all = data
+            .map((c) => ({
+              id: c.championId,
+              name: c.name,
+              title: c.title,
+              imageId: c.imageId,
+              aliases: c.aliases
+            }))
+            .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
           setSuggestions(all)
         }
       } catch {
-        // tier list unavailable
+        // search index unavailable
       }
     })()
   }, [])
 
-  const filtered = input.trim()
-    ? suggestions.filter((c) => c.name.toLowerCase().includes(input.toLowerCase()))
+  const query = input.trim().toLowerCase()
+  const filtered = query
+    ? suggestions
+        .filter((c) => c.aliases.some((a) => a.includes(query)))
+        // 别称前缀匹配（如输入"亚"优先于"亚索"在"疾风剑豪"里命中）排在前面
+        .sort((a, b) => {
+          const aStart = a.aliases.some((al) => al.startsWith(query)) ? 0 : 1
+          const bStart = b.aliases.some((al) => al.startsWith(query)) ? 0 : 1
+          return aStart - bStart
+        })
     : []
 
   return (
     <div className="rounded-lg border border-border bg-card p-4">
       <h3 className="mb-2 text-sm font-medium">手动查询对位</h3>
-      <p className="mb-3 text-xs text-muted-foreground">不在选人阶段时，可手动输入敌方英雄名查看对位数据</p>
+      <p className="mb-3 text-xs text-muted-foreground">
+        不在选人阶段时，可手动输入敌方英雄名查看对位数据（支持中文称号、本名、英文、昵称）
+      </p>
       <input
         type="text"
-        placeholder="输入英雄名（如：亚索）"
+        placeholder="输入英雄名（如：亚索 / 疾风剑豪 / Yasuo / 妖姬）"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
@@ -300,7 +337,8 @@ function QuickLookupPanel({ onLookup }: { onLookup: (id: number) => void }): Rea
             >
               <img src={championIconUrl(c.imageId)} alt="" className="h-6 w-6 rounded-full"
                 onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              {c.name}
+              <span>{c.name}</span>
+              {c.title && <span className="text-xs text-muted-foreground">{c.title}</span>}
             </button>
           ))}
         </div>

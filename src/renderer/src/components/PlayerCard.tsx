@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, Copy } from 'lucide-react'
 import type { PlayerWithHistory } from '../../../shared/types'
 import { MatchHistoryRow } from '@/components/MatchHistoryRow'
 import { PlayerTrend } from '@/components/PlayerTrend'
@@ -19,6 +19,7 @@ interface PlayerCardProps {
 
 export function PlayerCard({ player, teamColor }: PlayerCardProps): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const [queueFilter, setQueueFilter] = useState<string>('全部')
 
   const totalKills = player.matches.reduce((s, m) => s + m.kills, 0)
   const totalDeaths = player.matches.reduce((s, m) => s + m.deaths, 0)
@@ -31,6 +32,14 @@ export function PlayerCard({ player, teamColor }: PlayerCardProps): React.JSX.El
           Math.round(totalAssists / player.matches.length)
         )
       : '-'
+
+  // 提取该玩家出现过的游戏模式，用于筛选
+  const queueOptions = ['全部', ...Array.from(
+    new Set(player.matches.map((m) => m.queueName).filter((n): n is string => Boolean(n)))
+  )]
+  const filteredMatches = queueFilter === '全部'
+    ? player.matches
+    : player.matches.filter((m) => m.queueName === queueFilter)
 
   const borderClass =
     teamColor === 'blue'
@@ -78,7 +87,24 @@ export function PlayerCard({ player, teamColor }: PlayerCardProps): React.JSX.El
               {player.championName && (
                 <span className="shrink-0 text-sm font-semibold">{player.championName}</span>
               )}
-              <span className="truncate text-sm text-muted-foreground">{player.riotId}</span>
+              <span
+                className="truncate text-sm text-muted-foreground select-text"
+                title={player.riotId}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {player.riotId}
+              </span>
+              <button
+                type="button"
+                title="复制 ID"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void navigator.clipboard.writeText(player.riotId)
+                }}
+                className="shrink-0 text-muted-foreground/60 transition-colors hover:text-foreground"
+              >
+                <Copy className="h-3 w-3" />
+              </button>
             </div>
             {player.error && <div className="text-xs text-red-400">{player.error}</div>}
           </div>
@@ -120,12 +146,33 @@ export function PlayerCard({ player, teamColor }: PlayerCardProps): React.JSX.El
             </>
           )}
           {!player.loading && player.matches.length > 0 && (
-            <PlayerTrend matches={player.matches} />
+            <PlayerTrend matches={filteredMatches} />
+          )}
+          {!player.loading && player.matches.length > 0 && queueOptions.length > 1 && (
+            <div className="flex flex-wrap gap-1">
+              {queueOptions.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setQueueFilter(q)}
+                  className={cn(
+                    'rounded px-2 py-0.5 text-[11px] font-medium transition-colors',
+                    queueFilter === q
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted/40 text-muted-foreground hover:bg-muted'
+                  )}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           )}
           {!player.loading &&
-            player.matches.map((match) => <MatchHistoryRow key={match.matchId} match={match} />)}
-          {!player.loading && player.matches.length === 0 && !player.error && (
-            <div className="py-4 text-center text-sm text-muted-foreground">暂无对局记录</div>
+            filteredMatches.map((match) => <MatchHistoryRow key={match.matchId} match={match} />)}
+          {!player.loading && filteredMatches.length === 0 && !player.error && (
+            <div className="py-4 text-center text-sm text-muted-foreground">
+              {player.matches.length > 0 ? '该模式下暂无对局' : '暂无对局记录'}
+            </div>
           )}
         </div>
       </CollapsibleContent>

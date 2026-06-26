@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, Swords, Eye } from 'lucide-react'
+import { ChevronDown, Copy, Swords, Eye } from 'lucide-react'
 import { IPC_CHANNELS } from '../../../shared/ipc-channels'
 import { formatCsPerMin, formatKdaRatio, getSpellImageId } from '../../../shared/match-labels'
 import type { MatchDetail, MatchParticipantDetail, MatchSummary, MatchTeamDetail } from '../../../shared/types'
@@ -153,8 +153,19 @@ function ScoreboardPlayerRow({
 
       {/* Summoner name */}
       <div className="w-8" />
-      <div className="min-w-0 flex-1 truncate text-xs font-medium">
+      <div className="group relative min-w-0 flex-1 truncate text-xs font-medium select-text" title={participant.summonerName}>
         {participant.summonerName}
+        <button
+          type="button"
+          title="复制名字"
+          onClick={(e) => {
+            e.stopPropagation()
+            void navigator.clipboard.writeText(participant.summonerName)
+          }}
+          className="ml-1 inline-flex text-muted-foreground/40 opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
       </div>
 
       {/* Summoner spells */}

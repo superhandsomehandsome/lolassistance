@@ -72,6 +72,10 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.CHAMP_SELECT_SESSION, async () => lcuService.getChampSelectState())
 
+  ipcMain.handle(IPC_CHANNELS.CHAMPION_SEARCH_INDEX, async () =>
+    riotApi.getChampionSearchIndex()
+  )
+
   ipcMain.handle(IPC_CHANNELS.SETTINGS_GET, async () => ({
     ...getSettings(),
     riotApiConfigured: riotApi.isConfigured()
